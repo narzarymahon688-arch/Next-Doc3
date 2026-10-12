@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#101827">
+<title>Gesture AI Controller</title>
+
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #101827;
+  --panel: #1e293b;
+  --blue: #3b82f6;
+  --green: #4ade80;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 18px;
+  background: var(--bg);
+  color: white;
+  font-family: system-ui, Arial, sans-serif;
+}
+header, main { max-width: 650px; margin: auto; }
+header { text-align: center; }
+h1 { color: #60a5fa; font-size: 27px; }
+.card {
+  background: var(--panel);
+  border-radius: 16px;
+  padding: 18px;
+  margin: 15px 0;
+}
+video {
+  width: 100%;
+  min-height: 180px;
+  background: black;
+  border-radius: 12px;
+  transform: scaleX(-1);
+}
+button, select {
+  border: 0;
+  border-radius: 10px;
+  padding: 13px;
+  margin: 5px 2px;
+  font-size: 15px;
+}
+button {
+  background: var(--blue);
+  color: white;
+  font-weight: 700;
+}
+button:disabled { opacity: .5; }
+select {
+  max-width: 100%;
+  background: #334155;
+  color: white;
+}
+.status { color: #fbbf24; overflow-wrap: anywhere; }
+#gesture {
+  color: var(--green);
+  font-size: 26px;
+  font-weight: bold;
+  overflow-wrap: anywhere;
+}
+.small { color: #cbd5e1; line-height: 1.5; font-size: 14px; }
+.row { display: flex; flex-wrap: wrap; gap: 6px; }
+.row button { flex: 1; }
+label { display: block; margin-top: 12px; }
+footer { text-align: center; color: #94a3b8; font-size: 12px; }
+</style>
+</head>
+
+<body>
+<header>
+  <h1>✋ Gesture AI Controller</h1>
+  <p class="small">Hands-free interaction for this web page</p>
+</header>
+
+<main>
+  <section class="card">
+    <video id="video" autoplay playsinline muted></video>
+    <p id="status" class="status">Ready. Press Start Camera.</p>
+    <div>Detected gesture</div>
+    <div id="gesture">None</div>
+
+    <div class="row">
+      <button id="start">▶ Start Camera & AI</button>
+      <button id="stop">■ Stop</button>
+    </div>
+
+    <p class="small">
+      Camera video is processed in this browser. This page does not
+      upload camera images to a server.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>⚙️ Gesture settings</h2>
+    <p class="small">Choose an action for the Victory hand gesture.</p>
+
+    <label for="victoryAction">Victory action</label>
+    <select id="victoryAction">
+      <option value="message">Show a message</option>
+      <option value="scroll">Scroll this page</option>
+      <option value="theme">Change page background</option>
+    </select>
+
+    <p id="actionResult">No action performed yet.</p>
+    <button id="saveSettings">Save settings</button>
+  </section>
+
+  <section class="card">
+    <h2>🖐️ Available gestures</h2>
+    <p>✋ Open palm — Open_Palm</p>
+    <p>✊ Fist — Closed_Fist</p>
+    <p>👍 Thumbs up — Thumb_Up</p>
+    <p>✌️ Victory — Victory</p>
+    <p>☝️ Pointing up — Pointing_Up</p>
+    <p class="small">
+      Recognition depends on lighting, camera quality, and model output.
+      Hold a gesture briefly for the app to recognize it.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>🛡️ Safety</h2>
+    <p class="small">
+      Stop disables camera tracking. Gestures control this web page only.
+      They cannot simulate Android-wide taps, operate other apps, or
+      bypass system permissions.
+    </p>
+    <button id="emergency">EMERGENCY STOP</button>
+  </section>
+</main>
+
+<footer>
+  Gesture AI Controller · Browser edition
+</footer>
+
+<script type="module">
+import {
+  GestureRecognizer,
+  FilesetResolver
+} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+const video = document.querySelector("#video");
+const status = document.querySelector("#status");
+const gestureDisplay = document.querySelector("#gesture");
+const actionResult = document.querySelector("#actionResult");
+const startButton = document.querySelector("#start");
+const stopButton = document.querySelector("#stop");
+const actionSelect = document.querySelector("#victoryAction");
+
+let recognizer = null;
+let stream = null;
+let running = false;
+let busy = false;
+let lastVideoTime = -1;
+let previousGesture = "";
+let candidateGesture = "";
+let candidateSince = 0;
+let lastAction = 0;
+let darkTheme = true;
+
+const savedAction = localStorage.getItem("victoryAction");
+if (savedAction) actionSelect.value = savedAction;
+
+document.querySelector("#saveSettings").addEventListener("click", () => {
+  localStorage.setItem("victoryAction", actionSelect.value);
+  actionResult.textContent = "Settings saved on this device.";
+});
+
+async function startController() {
+  if (busy || running) return;
+  busy = true;
+  startButton.disabled = true;
+
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Camera API unavailable. Open this page using HTTPS.");
+    }
+
+    status.textContent = "Loading hand-recognition model...";
+
+    const vision = await FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+    );
+
+    recognizer = await GestureRecognizer.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath:
+          "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task",
+        delegate: "CPU"
+      },
+      runningMode: "VIDEO",
+      numHands: 1
+    });
+
+    status.textContent = "Requesting camera permission...";
+
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        facingMode: "user",
+        width: { ideal: 640 },
+        height: { ideal: 480 }
+      }
+    });
+
+    video.srcObject = stream;
+    await video.play();
+
+    running = true;
+    status.textContent = "Camera active. Show your hand.";
+    requestAnimationFrame(detectFrame);
+
+  } catch (error) {
+    console.error(error);
+    status.textContent =
+      "Could not start: " + error.message +
+      ". Check HTTPS, camera permission, and internet access.";
+
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = null;
+    video.srcObject = null;
+    startButton.disabled = false;
+  } finally {
+    busy = false;
+  }
+}
+
+function detectFrame() {
+  if (!running || !recognizer) return;
+
+  if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+
+    try {
+      const result = recognizer.recognizeForVideo(
+        video,
+        performance.now()
+      );
+
+      const category = result.gestures?.[0]?.[0];
+      const name = category?.categoryName || "None";
+
+      gestureDisplay.textContent = name;
+
+      if (name === candidateGesture) {
+        if (performance.now() - candidateSince > 350 &&
+            name !== previousGesture) {
+          previousGesture = name;
+          performAction(name);
+        }
+      } else {
+        candidateGesture = name;
+        candidateSince = performance.now();
+      }
+
+      if (name === "None" || name === "Unknown") {
+        previousGesture = "";
+      }
+    } catch (error) {
+      console.error(error);
+      status.textContent = "Recognition error. See browser console.";
+    }
+  }
+
+  if (running) requestAnimationFrame(detectFrame);
+}
+
+function performAction(name) {
+  if (name !== "Victory") return;
+
+  const now = Date.now();
+  if (now - lastAction < 1800) return;
+  lastAction = now;
+
+  switch (actionSelect.value) {
+    case "message":
+      actionResult.textContent = "✌️ Victory gesture recognized!";
+      break;
+
+    case "scroll":
+      window.scrollBy({ top: 300, behavior: "smooth" });
+      actionResult.textContent = "Page scrolled down.";
+      break;
+
+    case "theme":
+      darkTheme = !darkTheme;
+      document.body.style.background = darkTheme ? "#101827" : "#334155";
+      actionResult.textContent = "Background changed.";
+      break;
+  }
+}
+
+function stopController() {
+  running = false;
+
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+    stream = null;
+  }
+
+  video.srcObject = null;
+  gestureDisplay.textContent = "None";
+  status.textContent = "Camera stopped.";
+  startButton.disabled = false;
+}
+
+startButton.addEventListener("click", startController);
+stopButton.addEventListener("click", stopController);
+document.querySelector("#emergency").addEventListener("click", stopController);
+
+window.addEventListener("pagehide", stopController);
+</script>
+</body>
+</html>
