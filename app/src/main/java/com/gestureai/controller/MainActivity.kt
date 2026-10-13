@@ -7,7 +7,6 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.provider.Settings
 import android.view.Gravity
-import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -21,7 +20,7 @@ class MainActivity : Activity() {
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(24, 24, 24, 24)
+            setPadding(32, 32, 32, 32)
         }
 
         layout.addView(TextView(this).apply {
@@ -32,21 +31,22 @@ class MainActivity : Activity() {
 
         layout.addView(TextView(this).apply {
             text = "\nAndroid 14 Hand Control\n\n" +
-                "Camera tracking, cursor control, clicking, " +
-                "scrolling and swiping are being integrated."
+                "Next: camera hand tracking, cursor, " +
+                "clicking, scrolling and swiping."
             textSize = 17f
             gravity = Gravity.CENTER
         })
 
         layout.addView(makeButton("Allow Camera") {
             if (checkSelfPermission(Manifest.permission.CAMERA)
-                != PackageManager.PERMISSION_GRANTED) {
+                != PackageManager.PERMISSION_GRANTED
+            ) {
                 requestPermissions(
                     arrayOf(Manifest.permission.CAMERA), 10
                 )
             } else {
                 Toast.makeText(
-                    this, "Camera permission already granted",
+                    this, "Camera permission granted",
                     Toast.LENGTH_SHORT
                 ).show()
             }
