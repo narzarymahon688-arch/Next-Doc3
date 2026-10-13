@@ -24,3 +24,6 @@ android {
         jvmTarget = "17"
     }
 }
+dependencies {
+    implementation("com.google.mediapipe:tasks-vision:0.10.14")
+}
